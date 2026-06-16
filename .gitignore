@@ -1,0 +1,40 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env
+.env.local
+.env.*.local
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local database and generated outputs
+mock_warehouse.duckdb
+outputs/
+mock_outputs/
+report.csv
+
+# Logs
+*.log
+
+# Test caches
+.pytest_cache/
+
+# Dependency locks (if any)
+Pipfile.lock
+poetry.lock
+
+# Node stuff (if present)
+node_modules/
+
+# Ignore local GitHub Actions secrets file if present
+.github/*.secret
