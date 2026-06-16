@@ -409,3 +409,14 @@ You now have:
 4. Start building!
 
 **Good luck! 🚀**
+
+---
+
+## Consolidated Guides
+
+To simplify navigation, two consolidated guides have been added:
+
+- **[USER_GUIDE.md](USER_GUIDE.md)** — a single-file quick reference that combines the Quick Start, README highlights, and Mock Setup essentials for users who just want to run and verify results.
+- **[DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)** — a single-file developer handbook that consolidates the implementation guide, code walkthrough, extension scenarios, and troubleshooting for developers.
+
+If you prefer a single short doc, start with `USER_GUIDE.md`. If you're modifying code, open `DEVELOPER_GUIDE.md`.
