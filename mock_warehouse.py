@@ -444,8 +444,12 @@ def rewrite_sql(sql_text: str) -> str:
         sql_text,
         flags=re.I,
     )
-    sql_text = sql_text.replace("to_date('20260520','YYYYMMDD')", "20260520")
-    sql_text = sql_text.replace("to_date('20260519','YYYYMMDD')", "20260519")
+    sql_text = re.sub(
+        r"to_date\s*\(\s*'(?P<date>\d{8})'\s*,\s*'YYYYMMDD'\s*\)",
+        r"\g<date>",
+        sql_text,
+        flags=re.I,
+    )
     
     sql_text = re.sub(
         r"\bWHEN\s+DS_EXEC_REGION\s*=",
@@ -513,6 +517,13 @@ def run_sql(db_path: Path, sql_path: Path, output_dir: Path) -> None:
                 writer.writerow(columns)
                 writer.writerows(rows)
             print(f"query {index:02d}: {len(rows)} rows -> {output_path}")
+
+    # Auto-generate the pivoted Daily Stand-up Dashboard report
+    try:
+        from generate_dashboard import generate_dashboard
+        generate_dashboard()
+    except Exception as e:
+        print(f"Warning: Could not auto-generate dashboard report: {e}")
 
 
 def parse_args() -> argparse.Namespace:
