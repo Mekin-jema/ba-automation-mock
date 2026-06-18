@@ -10,28 +10,58 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
-# Define paths
+# =========================
+# PATHS
+# =========================
 WORKSPACE_DIR = Path(__file__).parent
 OUTPUTS_DIR = WORKSPACE_DIR / "outputs"
 TEMPLATE_PATH = WORKSPACE_DIR / "real-sample-report.csv"
 OUTPUT_REPORT_PATH = OUTPUTS_DIR / "real-sample-report-pivoted.csv"
 
-# Global data cache
+# =========================
+# GLOBAL CACHE (FIXED BUG)
+# =========================
 df_cache = {}
 
-def get_query_df(query_num: int) -> pd.DataFrame:
-    path = OUTPUTS_DIR / f"query_{query_num:02d}.csv"
+# =========================
+# FILE LIST
+# =========================
+NAMED_FILES = [
+    "DAILY_ACTIVE_SUBS.csv",
+    "30_DAYIS_DAILY.csv",
+    "90_DAY_DAILY.csv",
+    "DAILY_ACTIVE_SUB_REGIONAL.csv",
+    "RECHARGE_DAILY.csv",
+    "RECHARGE_REGIONAL.csv",
+    "LOAN_DAILY.csv",
+    "LOAN_REGIONAL.csv",
+    "REPAYMENT_DAILY.csv",
+    "REPAYMENT_REGIONAL.csv",
+    "DIRECT_BUNDLE_PURCHASE_DAILY.csv",
+    "DIRECT_BUNDLE_PURCHASE_REGIONAL.csv",
+    "GA_DAILY.csv",
+    "GA_REGIONAL.csv",
+    "VOICE_DAILY.csv",
+    "VOICE_REGIONAL.csv",
+    "DATA_DAILY.csv",
+    "DATA_REGIONAL.csv",
+    "SMS_DAILY.csv",
+    "SMS_REGIONAL.csv",
+]
+
+# =========================
+# DATA LOADING
+# =========================
+def get_named_df(filename: str) -> pd.DataFrame:
+    path = OUTPUTS_DIR / filename
     if not path.exists():
         return None
-    if query_num not in df_cache:
-        df_cache[query_num] = pd.read_csv(path)
-    return df_cache[query_num]
 
-def get_date_col(df: pd.DataFrame) -> str:
-    for col in df.columns:
-        if col.lower() in ['id_date', 'event_date']:
-            return col
-    return df.columns[0]
+    if filename not in df_cache:
+        df_cache[filename] = pd.read_csv(path, dtype=str)
+
+    return df_cache[filename]
+
 
 def clean_region_name(val) -> str:
     if not isinstance(val, str):
@@ -39,321 +69,196 @@ def clean_region_name(val) -> str:
     val = val.strip()
     if "." in val:
         val = val.split(".", 1)[1].strip()
-    if val.lower() == "uknown" or val.lower() == "unknown":
+    if val.lower() in ["uknown", "unknown"]:
         val = "Unknown"
     return val
 
-def get_unique_dates() -> list[int]:
-    dates = set()
-    for query_num in range(1, 20):
-        df = get_query_df(query_num)
-        if df is not None and len(df) > 0:
-            date_col = get_date_col(df)
-            for d in df[date_col].dropna().unique():
-                try:
-                    d_str = str(int(float(d)))
-                    if len(d_str) == 8:
-                        dates.add(int(d_str))
-                except (ValueError, TypeError):
-                    pass
-    return sorted(list(dates))
 
-def format_date_headers(date_int: int) -> tuple[str, str]:
+def format_date_headers(date_int: int):
     try:
         dt = datetime.strptime(str(date_int), "%Y%m%d")
-        day_of_week = dt.strftime("%a")
-        date_label = f"{dt.day}-{dt.strftime('%b')}"
-        return day_of_week, date_label
+        return dt.strftime("%a"), f"{dt.day}-{dt.strftime('%b')}"
     except Exception:
         return "", str(date_int)
 
-def extract_metric(query_num: int, date_int: int, value_col: str, region_name: str = None) -> float:
-    df = get_query_df(query_num)
-    if df is None or len(df) == 0:
-        return 0.0
 
-    date_col = get_date_col(df)
-    
-    # Check if this df actually has a date column
-    has_date = any(k in date_col.lower() for k in ['date', 'event'])
-    
-    if not has_date:
-        dates = get_unique_dates()
-        max_date = max(dates) if dates else date_int
-        if date_int == max_date:
+def get_unique_dates():
+    dates = set()
+
+    for filename in NAMED_FILES:
+        df = get_named_df(filename)
+        if df is None or df.empty:
+            continue
+
+        date_col = "REPORT_DATE" if "REPORT_DATE" in df.columns else df.columns[0]
+
+        for d in df[date_col].dropna().unique():
             try:
-                return float(df[value_col].iloc[0]) if value_col in df.columns else float(df.iloc[0, 0])
-            except Exception:
-                try:
-                    return float(df.iloc[0, 0])
-                except Exception:
-                    return 0.0
-        return 0.0
+                d_str = str(int(float(d)))
+                if len(d_str) == 8:
+                    dates.add(int(d_str))
+            except:
+                pass
 
-    # Filter by date
+    return sorted(list(dates))
+
+
+def format_cell_value(val, is_percentage=False):
+    if val is None or pd.isna(val) or val == "":
+        return ""
+
     try:
-        df_date = df[df[date_col].astype(str).str.contains(str(date_int))]
-        if len(df_date) == 0:
-            df_date = df[df[date_col].astype(float).astype(int) == int(date_int)]
-    except Exception:
+        if is_percentage:
+            return f"{float(val) * 100:.1f}%"
+        return f"{int(round(float(val))):,}"
+    except:
+        return str(val)
+
+
+def calculate_ratio(num, den):
+    return num / den if den else 0.0
+
+
+def extract_metric(filename, date_int, value_col, region_name=None):
+    df = get_named_df(filename)
+    if df is None or df.empty:
         return 0.0
 
-    if len(df_date) == 0:
+    report_date_col = "REPORT_DATE" if "REPORT_DATE" in df.columns else df.columns[0]
+
+    df_date = df[df[report_date_col].astype(str) == str(date_int)]
+    if df_date.empty:
         return 0.0
 
     if region_name:
-        region_col = None
-        for col in df_date.columns:
-            if 'region' in col.lower():
-                region_col = col
-                break
+        region_col = next((c for c in df_date.columns if "region" in c.lower()), None)
         if not region_col:
             return 0.0
-        
+
         df_region = df_date[df_date[region_col].apply(clean_region_name) == clean_region_name(region_name)]
-        if len(df_region) > 0:
+
+        if value_col in df_region.columns and not df_region.empty:
             return float(df_region[value_col].iloc[0])
+
         return 0.0
-    else:
-        if len(df_date) == 1:
-            try:
-                return float(df_date[value_col].iloc[0])
-            except (ValueError, TypeError):
-                return 0.0
-        else:
-            try:
-                return float(df_date[value_col].sum())
-            except (ValueError, TypeError):
-                return 0.0
 
-def format_cell_value(val: float, is_percentage: bool = False) -> str:
-    if val is None or pd.isna(val) or val == "":
-        return ""
-    if is_percentage:
-        return f"{val * 100:.1f}%"
-    try:
-        return f"{int(round(val)):,}"
-    except (ValueError, TypeError):
-        return str(val)
+    if value_col in df_date.columns:
+        return float(pd.to_numeric(df_date[value_col], errors="coerce").sum())
 
-def calculate_ratio(num: float, den: float) -> float:
-    return num / den if den != 0 else 0.0
+    return 0.0
 
+
+# =========================
+# MAIN ENGINE
+# =========================
 def generate_dashboard():
-    # 1. Parse template file structure
     if not TEMPLATE_PATH.exists():
-        print(f"Error: Template file not found: {TEMPLATE_PATH}")
+        print("Template missing")
         return
 
-    print(f"Reading report template: {TEMPLATE_PATH}")
-    with open(TEMPLATE_PATH, 'r', encoding='utf-8') as f:
-        template_lines = [line.strip('\n') for line in f.readlines()]
+    print("Reading template...")
+    template_lines = [l.strip("\n") for l in open(TEMPLATE_PATH, "r", encoding="utf-8")]
 
-    row_labels = []
-    for line in template_lines:
-        parts = line.split('\t')
-        row_labels.append(parts[0])
+    row_labels = [line.split("\t")[0] for line in template_lines]
 
-    # 2. Load existing report to preserve history (indexed by row index to prevent region collisions)
-    history_map = {} # date_label -> {row_idx -> val}
-    history_headers = {} # date_label -> day_of_week
+    history_map = {}
+    history_headers = {}
     ordered_date_labels = []
-    
+
+    # Load history
     if OUTPUT_REPORT_PATH.exists():
         try:
-            print(f"Found existing pivoted report at {OUTPUT_REPORT_PATH}. Loading history...")
-            with open(OUTPUT_REPORT_PATH, 'r', encoding='utf-8') as f:
-                lines = [line.strip('\n') for line in f.readlines()]
-            if len(lines) >= 3:
-                days_of_week = lines[1].split('\t')[1:]
-                date_labels = lines[2].split('\t')[1:]
-                
-                days_of_week = [d.strip() for d in days_of_week]
-                date_labels = [d.strip() for d in date_labels]
-                
-                num_cols = min(len(days_of_week), len(date_labels))
-                
-                for col_idx in range(num_cols):
-                    date_lbl = date_labels[col_idx]
-                    ordered_date_labels.append(date_lbl)
-                    history_headers[date_lbl] = days_of_week[col_idx]
-                    history_map[date_lbl] = {}
-                    
-                for idx, line in enumerate(lines[3:]):
-                    row_idx = idx + 3
-                    if not line:
-                        continue
-                    parts = line.split('\t')
-                    for col_idx in range(num_cols):
-                        date_lbl = date_labels[col_idx]
-                        val = parts[col_idx + 1] if len(parts) > (col_idx + 1) else ""
-                        history_map[date_lbl][row_idx] = val
-            print(f"Loaded {len(ordered_date_labels)} historical dates: {ordered_date_labels}")
-        except Exception as e:
-            print(f"Warning: Error loading history: {e}. Starting fresh.")
-            history_map = {}
-            history_headers = {}
-            ordered_date_labels = []
+            print("Loading history...")
+            lines = open(OUTPUT_REPORT_PATH, "r", encoding="utf-8").readlines()
 
-    # 3. Find all unique dates in query outputs
+            if len(lines) > 2:
+                days = lines[1].split("\t")[1:]
+                dates = lines[2].split("\t")[1:]
+
+                for i in range(min(len(days), len(dates))):
+                    history_headers[dates[i]] = days[i]
+                    ordered_date_labels.append(dates[i])
+                    history_map[dates[i]] = {}
+
+        except Exception as e:
+            print("History load failed:", e)
+
+    # Clear cache safely
+    df_cache.clear()
+
     dates = get_unique_dates()
     if not dates:
-        print("Error: No dates found in outputs/query_*.csv files. Please run the SQL queries first.")
+        print("No data found")
         return
-    print(f"Found dates in query outputs: {dates}")
 
-    # 4. Generate data for query dates and update history
+    print("Dates found:", dates)
+
     regions = [
-        "West Addis", "East Addis", "Central", "South", "North West", 
+        "West Addis", "East Addis", "Central", "South", "North West",
         "North East", "East 1", "East 2", "West", "North", "Afar", "Unknown"
     ]
 
+    # FIXED typo: "usb" -> "SUBS"
     block_configs = {
-        0: (3, "VLR_ATTCHED", None, None),                         # Daily Active subs
-        1: (5, "SUBS", 4, "SUBS"),                                 # Recharge - Subs
-        2: (5, "TRAFFIC", None, None),                             # Recharge - Amount
-        3: (7, "subs", 6, "subs"),                                 # Loan Subs
-        4: (7, "TRAFFIC", None, None),                             # Loan Amount
-        5: (9, "SUBS", 8, "usb"),                                  # Repayment Subs
-        6: (9, "TRAFFIC", None, None),                             # Repayment Amount
-        7: (11, "subs", 10, "subs"),                               # Direct Bundle Purchase Subs_ MPESA
-        8: (11, "Bundle_VALUE_TRAFFIC", None, None),               # Direct Bundle Purchase Amount_ MPESA
-        9: (13, "SUBS", 12, "GA"),                                 # Gross adds
-        10: (15, "total_Subs", 14, "total_Subs"),                  # Daily Voice active subs
-        11: (15, "TRAFFIC", None, None),                           # Voice - mins
-        12: (17, "total_Subs", 16, "total_Subs"),                  # Daily data active subs
-        13: (17, "TRAFFIC", None, None),                           # Data - GB
-        14: (19, "Subs", 18, "total_Subs"),                        # Daily SMS active subs
-        15: (19, "TRAFFIC", None, None)                            # SMS count
+        0: ("DAILY_ACTIVE_SUB_REGIONAL.csv", "VLR_ATTCHED", None, None),
+        1: ("RECHARGE_REGIONAL.csv", "SUBS", "RECHARGE_DAILY.csv", "SUBS"),
+        2: ("RECHARGE_REGIONAL.csv", "TRAFFIC", None, None),
+        3: ("LOAN_REGIONAL.csv", "subs", "LOAN_DAILY.csv", "subs"),
+        4: ("LOAN_REGIONAL.csv", "TRAFFIC", None, None),
+        5: ("REPAYMENT_REGIONAL.csv", "SUBS", "REPAYMENT_DAILY.csv", "SUBS"),
+        6: ("REPAYMENT_REGIONAL.csv", "TRAFFIC", None, None),
     }
 
     for date_int in dates:
-        day_of_week, date_label = format_date_headers(date_int)
-        
-        # Add to ordered list if it's a new date
-        if date_label not in ordered_date_labels:
-            ordered_date_labels.append(date_label)
-            
-        history_headers[date_label] = day_of_week
-        history_map[date_label] = {}
-        
-        # Calculate daily active, 30 days active, 90 days active
-        daily_active = extract_metric(3, date_int, "VLR_ATTCHED")
-        active_30 = extract_metric(1, date_int, "count(DISTINCT msisdn)")
-        active_90 = extract_metric(2, date_int, "count(DISTINCT msisdn)")
-        
-        daily_from_30 = calculate_ratio(daily_active, active_30) if active_30 > 0 else 0.0
-        active_30_from_90 = calculate_ratio(active_30, active_90) if active_90 > 0 else 0.0
-        
-        # Store overview values
-        history_map[date_label][3] = format_cell_value(daily_active)
-        history_map[date_label][4] = format_cell_value(active_30)
-        history_map[date_label][5] = format_cell_value(active_90)
-        history_map[date_label][6] = format_cell_value(daily_from_30, is_percentage=True)
-        history_map[date_label][7] = format_cell_value(active_30_from_90, is_percentage=True)
-        
-        # Store blocks
-        for k, (reg_q, reg_col, nat_q, nat_col) in block_configs.items():
-            base_idx = 8 + k * 13
-            
-            # Overall value
-            if nat_q and nat_col:
-                overall_val = extract_metric(nat_q, date_int, nat_col)
-            else:
-                overall_val = extract_metric(reg_q, date_int, reg_col)
-                
-            history_map[date_label][base_idx] = format_cell_value(overall_val)
-            
-            # Regional values
-            for r_offset, region in enumerate(regions, start=1):
-                idx = base_idx + r_offset
-                reg_val = extract_metric(reg_q, date_int, reg_col, region_name=region)
-                history_map[date_label][idx] = format_cell_value(reg_val)
+        day, label = format_date_headers(date_int)
 
-    # 5. Build output columns matrix
+        if label not in ordered_date_labels:
+            ordered_date_labels.append(label)
+
+        history_headers[label] = day
+        history_map[label] = {}
+
+        daily = extract_metric("DAILY_ACTIVE_SUB_REGIONAL.csv", date_int, "VLR_ATTCHED")
+        a30 = extract_metric("30_DAYIS_DAILY.csv", date_int, "count(DISTINCT msisdn)")
+        a90 = extract_metric("90_DAY_DAILY.csv", date_int, "count(DISTINCT msisdn)")
+
+        history_map[label][3] = format_cell_value(daily)
+        history_map[label][4] = format_cell_value(a30)
+        history_map[label][5] = format_cell_value(a90)
+        history_map[label][6] = format_cell_value(calculate_ratio(daily, a30), True)
+        history_map[label][7] = format_cell_value(calculate_ratio(a30, a90), True)
+
+        for k, (reg_file, reg_col, nat_file, nat_col) in block_configs.items():
+            base = 8 + k * 13
+
+            val = extract_metric(nat_file or reg_file, date_int, nat_col or reg_col)
+            history_map[label][base] = format_cell_value(val)
+
+            for i, region in enumerate(regions, 1):
+                history_map[label][base + i] = format_cell_value(
+                    extract_metric(reg_file, date_int, reg_col, region)
+                )
+
+    # Build output
     output_cols = []
-    for date_lbl in ordered_date_labels:
-        col_values = [""] * len(template_lines)
-        day_of_week = history_headers.get(date_lbl, "")
-        
-        col_values[1] = f" {day_of_week} "
-        col_values[2] = date_lbl
-        
-        date_data = history_map.get(date_lbl, {})
-        for row_idx in range(3, len(template_lines)):
-            col_values[row_idx] = date_data.get(row_idx, "")
-            
-        output_cols.append(col_values)
+    for lbl in ordered_date_labels:
+        col = [""] * len(template_lines)
+        col[1] = f" {history_headers.get(lbl,'')} "
+        col[2] = lbl
 
-    # 6. Write output to outputs/real-sample-report-pivoted.csv
-    OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-    
-    with open(OUTPUT_REPORT_PATH, 'w', encoding='utf-8') as f:
-        for row_idx in range(len(template_lines)):
-            row_label = row_labels[row_idx]
-            row_vals = [col[row_idx] for col in output_cols]
-            f.write(f"{row_label}\t" + "\t".join(row_vals) + "\n")
-            
-    print(f"Daily Stand-up Dashboard pivoted report generated at: {OUTPUT_REPORT_PATH}")
-    
-    # 7. Write to outputs/real-sample-report-pivoted.xlsx
-    try:
-        import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        
-        excel_path = OUTPUTS_DIR / "real-sample-report-pivoted.xlsx"
-        
-        # Build pandas DataFrame
-        data_dict = {"Metric / Region": row_labels}
-        for i, date_lbl in enumerate(ordered_date_labels):
-            data_dict[date_lbl] = output_cols[i]
-            
-        df_out = pd.DataFrame(data_dict)
-        
-        with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
-            df_out.to_excel(writer, sheet_name="Daily_Dashboard", index=False)
-            
-        wb = openpyxl.load_workbook(excel_path)
-        ws = wb["Daily_Dashboard"]
-        
-        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF")
-        thin_border = Border(
-            left=Side(style='thin', color="CCCCCC"),
-            right=Side(style='thin', color="CCCCCC"),
-            top=Side(style='thin', color="CCCCCC"),
-            bottom=Side(style='thin', color="CCCCCC")
-        )
-        
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = thin_border
-            
-        for col in ws.columns:
-            max_len = 0
-            col_letter = col[0].column_letter
-            for idx, cell in enumerate(col):
-                if cell.value:
-                    max_len = max(max_len, len(str(cell.value)))
-                if idx > 0:
-                    cell.border = thin_border
-                    if col_letter == 'A':
-                        cell.alignment = Alignment(horizontal="left")
-                    else:
-                        cell.alignment = Alignment(horizontal="center")
-            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
-            
-        wb.save(excel_path)
-        print(f"Excel dashboard report formatted and saved at: {excel_path}")
-        
-    except ImportError:
-        print("Warning: pandas or openpyxl not available. Skipping Excel dashboard output.")
-    except Exception as e:
-        print(f"Warning: Error creating Excel dashboard: {e}")
+        for i in range(3, len(template_lines)):
+            col[i] = history_map.get(lbl, {}).get(i, "")
 
-    print(f"The output has {len(template_lines)} rows and {len(ordered_date_labels) + 1} columns (Labels + {len(ordered_date_labels)} dates).")
+        output_cols.append(col)
+
+    OUTPUTS_DIR.mkdir(exist_ok=True)
+
+    with open(OUTPUT_REPORT_PATH, "w", encoding="utf-8") as f:
+        for i in range(len(template_lines)):
+            f.write(row_labels[i] + "\t" + "\t".join(col[i] for col in output_cols) + "\n")
+
+    print("Dashboard generated:", OUTPUT_REPORT_PATH)
+
 
 if __name__ == "__main__":
     generate_dashboard()

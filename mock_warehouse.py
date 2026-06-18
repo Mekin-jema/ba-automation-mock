@@ -11,7 +11,7 @@ from typing import Iterable
 import duckdb
 
 
-BASE_DATE = date(2026, 5, 20)
+BASE_DATE = date.today()  # Always current — rebuild the DB to refresh
 WINDOW_DAYS = 120
 REGIONS = [
     "West Addis",
@@ -49,6 +49,32 @@ def make_msisdn(index: int) -> str:
 def date_range(start: date, days: int) -> Iterable[date]:
     for offset in range(days):
         yield start + timedelta(days=offset)
+
+
+def comment_to_filename(comment_line: str) -> str:
+    """Convert a section-divider comment (---TITLE---) to a clean CSV filename."""
+    name = re.sub(r"^-+\s*|\s*-+$", "", comment_line.strip()).strip()
+    name = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_").upper()
+    return f"{name}.csv"
+
+
+def substitute_date(sql_text: str, report_date: date) -> str:
+    """Replace the hardcoded reference dates in the SQL with the requested report date.
+
+    The SQL workbook uses 20260520 as the 'report day' and 20260519 as the day
+    before.  This function swaps both values so every query targets the
+    caller-specified date instead.  Substitution runs *before* rewrite_sql so
+    that the to_char/to_date window expressions are resolved with the correct
+    anchor date.
+    """
+    base_date = "20260520"
+    base_prev = "20260519"
+    target = str(day_key(report_date))
+    target_prev = str(day_key(report_date - timedelta(days=1)))
+    # Replace the earlier date first to avoid a double-substitution.
+    sql_text = sql_text.replace(base_prev, target_prev)
+    sql_text = sql_text.replace(base_date, target)
+    return sql_text
 
 
 def build_subscribers() -> list[Subscriber]:
@@ -240,8 +266,12 @@ def build_database(db_path: Path) -> None:
         )
 
         fin_rows = []
-        traffic_dates = [20260519, 20260520]
-        for current_day in traffic_dates:
+        # Generate finance data for the last 90 days so any recent date has rows
+        fin_traffic_days = [
+            day_key(BASE_DATE - timedelta(days=i))
+            for i in range(90)
+        ]
+        for current_day in fin_traffic_days:
             for offset, traffic_type in enumerate((7, 6, 4, 9)):
                 subscriber = subscribers[(current_day + offset) % len(subscribers)]
                 location_id = subscriber.location_id
@@ -406,7 +436,7 @@ def build_database(db_path: Path) -> None:
             (301, 102, 3, 3, "BASE"),
             (303, 103, 3, 1, "BASE"),
         ]
-        for current_day in traffic_dates:
+        for current_day in fin_traffic_days:
             for offset, (account_id, product_id, traffic_type, roaming_type, info) in enumerate(traffic_template):
                 subscriber = subscribers[(current_day + offset * 3) % len(subscribers)]
                 traffic_rows.append(
@@ -450,73 +480,113 @@ def rewrite_sql(sql_text: str) -> str:
         sql_text,
         flags=re.I,
     )
-    
+
     sql_text = re.sub(
         r"\bWHEN\s+DS_EXEC_REGION\s*=",
         r"WHEN b.DS_EXEC_REGION =",
         sql_text,
         flags=re.I,
     )
-    
+
     return sql_text
 
 
-def split_statements(sql_text: str) -> list[str]:
-    """Split SQL text into individual statements, handling both semicolons and divider comments."""
+def split_statements(sql_text: str) -> list[tuple[str, str]]:
+    """Split SQL text into (filename, statement) pairs.
+
+    Section-divider comments (20+ dashes surrounding a title) are used as the
+    name source for the statement that immediately follows them.  The title is
+    cleaned and turned into an uppercase underscore-separated CSV filename,
+    e.g. '---DAILY ACTIVE SUBS---' becomes 'DAILY_ACTIVE_SUBS.csv'.
+    """
     lines = sql_text.split("\n")
-    statements: list[str] = []
-    current_statement: list[str] = []
+    results: list[tuple[str, str]] = []
+    current_lines: list[str] = []
+    current_name: str = ""
+    fallback_index = 0
+
+    def _flush(name: str) -> None:
+        nonlocal fallback_index
+        full_stmt = "\n".join(current_lines).strip()
+        if full_stmt and full_stmt.upper().startswith("SELECT"):
+            if not name:
+                fallback_index += 1
+                name = f"query_{fallback_index:02d}.csv"
+            results.append((name, full_stmt))
 
     for line in lines:
         stripped = line.strip()
 
         if re.match(r"^-{20,}", stripped):
-            if current_statement:
-                full_stmt = "\n".join(current_statement).strip()
-                if full_stmt and not re.match(r"^-{20,}", full_stmt):
-                    statements.append(full_stmt)
-                current_statement = []
+            # Flush whatever accumulated before this divider, then read new name.
+            _flush(current_name)
+            current_lines = []
+            current_name = comment_to_filename(stripped)
             continue
 
-        if not stripped or stripped.startswith("--"):
-            current_statement.append(line)
-            continue
-
-        current_statement.append(line)
+        current_lines.append(line)
 
         if stripped.endswith(";"):
-            full_stmt = "\n".join(current_statement).strip()
-            if full_stmt and not re.match(r"^-{20,}", full_stmt):
-                statements.append(full_stmt)
-            current_statement = []
+            _flush(current_name)
+            current_lines = []
+            current_name = ""
 
-    if current_statement:
-        full_stmt = "\n".join(current_statement).strip()
-        if full_stmt and not re.match(r"^-{20,}", full_stmt):
-            statements.append(full_stmt)
+    # Flush any trailing statement that has no closing semicolon or divider.
+    _flush(current_name)
 
-    return [stmt for stmt in statements if stmt.upper().startswith("SELECT")]
+    return results
 
 
-def run_sql(db_path: Path, sql_path: Path, output_dir: Path) -> None:
+def run_sql(db_path: Path, sql_path: Path, output_dir: Path, report_date: date) -> None:
+    """Run the SQL workbook and append results to per-metric CSV files.
+
+    Each section in the SQL workbook (delimited by dashed comment lines) is
+    written to a named CSV file derived from the comment title.  A REPORT_DATE
+    column is prepended so that multiple days of data can accumulate in the
+    same file.  Re-running for the same date replaces that day's rows rather
+    than duplicating them.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
-    sql_text = rewrite_sql(sql_path.read_text(encoding="utf-8-sig"))
-    statements = split_statements(sql_text)
+    report_date_str = str(day_key(report_date))
+
+    sql_text = sql_path.read_text(encoding="utf-8-sig")
+    sql_text = substitute_date(sql_text, report_date)  # must run before rewrite_sql
+    sql_text = rewrite_sql(sql_text)
+    named_statements = split_statements(sql_text)
 
     with duckdb.connect(str(db_path)) as con:
-        for index, statement in enumerate(statements, start=1):
+        for filename, statement in named_statements:
             cursor = con.execute(statement)
             if cursor.description is None:
                 continue
 
-            rows = cursor.fetchall()
-            columns = [column[0] for column in cursor.description]
-            output_path = output_dir / f"query_{index:02d}.csv"
-            with output_path.open("w", newline="", encoding="utf-8") as handle:
-                writer = csv.writer(handle)
-                writer.writerow(columns)
-                writer.writerows(rows)
-            print(f"query {index:02d}: {len(rows)} rows -> {output_path}")
+            new_rows = cursor.fetchall()
+            col_names = [col[0] for col in cursor.description]
+            header = ["REPORT_DATE"] + col_names
+            stamped_rows = [[report_date_str] + list(row) for row in new_rows]
+
+            output_path = output_dir / filename
+
+            # Load existing data and strip rows for today's date (avoid duplicates
+            # when re-running for the same report date).
+            retained: list[list] = []
+            if output_path.exists():
+                with output_path.open("r", newline="", encoding="utf-8") as fh:
+                    reader = csv.reader(fh)
+                    existing_header = next(reader, None)
+                    if existing_header == header:
+                        retained = [
+                            row for row in reader
+                            if row and row[0] != report_date_str
+                        ]
+
+            with output_path.open("w", newline="", encoding="utf-8") as fh:
+                writer = csv.writer(fh)
+                writer.writerow(header)
+                writer.writerows(retained)
+                writer.writerows(stamped_rows)
+
+            print(f"{filename}: {len(stamped_rows)} row(s) for {report_date_str} -> {output_path}")
 
     # Auto-generate the pivoted Daily Stand-up Dashboard report
     try:
@@ -532,6 +602,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db", default="mock_warehouse.duckdb", help="DuckDB database path")
     parser.add_argument("--sql", default="test2.sql", help="SQL workbook to execute")
     parser.add_argument("--out", default="outputs", help="Output directory for result CSV files")
+    parser.add_argument(
+        "--date",
+        default=None,
+        metavar="YYYYMMDD",
+        help="Report date (default: yesterday).  Example: --date 20260521",
+    )
     return parser.parse_args()
 
 
@@ -544,9 +620,22 @@ def main() -> None:
         print(f"built {db_path}")
         return
 
+    # Resolve the report date: explicit --date arg takes priority, otherwise yesterday.
+    if args.date:
+        try:
+            report_date = datetime.strptime(args.date, "%Y%m%d").date()
+        except ValueError:
+            raise SystemExit(
+                f"Invalid --date value '{args.date}'. Use YYYYMMDD format, e.g. 20260521."
+            )
+    else:
+        report_date = date.today() - timedelta(days=1)
+
+    print(f"Report date: {report_date.strftime('%Y-%m-%d')} ({day_key(report_date)})")
+
     if not db_path.exists():
         build_database(db_path)
-    run_sql(db_path, Path(args.sql), Path(args.out))
+    run_sql(db_path, Path(args.sql), Path(args.out), report_date)
 
 
 if __name__ == "__main__":
