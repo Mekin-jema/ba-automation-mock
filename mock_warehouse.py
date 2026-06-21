@@ -82,7 +82,7 @@ def build_subscribers() -> list[Subscriber]:
     for index in range(1, 241):
         region = REGIONS[(index - 1) % len(REGIONS)]
         location_id = (index - 1) % len(REGIONS) + 1
-        activation_date = day_key(BASE_DATE - timedelta(days=40 + (index % 80)))
+        activation_date = day_key(BASE_DATE - timedelta(days=index % 120))
         staff_flag = 1 if index % 17 == 0 else 0
         subscribers.append(
             Subscriber(
@@ -104,6 +104,12 @@ def build_database(db_path: Path) -> None:
     subscribers = build_subscribers()
     report_start = BASE_DATE - timedelta(days=WINDOW_DAYS - 1)
     report_days = [day for day in date_range(report_start, WINDOW_DAYS)]
+    # YOU can write using this syntax
+    # con = duckdb.connect(str(db_path))
+    #do something
+    # con.close()
+
+
 
     with duckdb.connect(str(db_path)) as con:
         con.execute("CREATE SCHEMA IF NOT EXISTS BI")

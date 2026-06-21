@@ -83,7 +83,8 @@ def format_date_headers(date_int: int):
 
 
 def get_unique_dates():
-    dates = set()
+    # set delete duplicate values
+    dates = set() 
 
     for filename in NAMED_FILES:
         df = get_named_df(filename)
@@ -160,6 +161,8 @@ def generate_dashboard():
     template_lines = [l.strip("\n") for l in open(TEMPLATE_PATH, "r", encoding="utf-8")]
 
     row_labels = [line.split("\t")[0] for line in template_lines]
+    if len(row_labels) > 0 and row_labels[0].strip() == "":
+        row_labels[0] = "metrics"
 
     history_map = {}
     history_headers = {}
@@ -169,17 +172,35 @@ def generate_dashboard():
     if OUTPUT_REPORT_PATH.exists():
         try:
             print("Loading history...")
-            lines = open(OUTPUT_REPORT_PATH, "r", encoding="utf-8").readlines()
+            import csv
+            # Detect delimiter to handle existing files gracefully
+            with open(OUTPUT_REPORT_PATH, "r", encoding="utf-8") as fh:
+                first_line = fh.readline()
+                delimiter = "," if "," in first_line else "\t"
 
-            if len(lines) > 2:
-                days = lines[1].split("\t")[1:]
-                dates = lines[2].split("\t")[1:]
+            with open(OUTPUT_REPORT_PATH, "r", encoding="utf-8", newline="") as fh:
+                reader = list(csv.reader(fh, delimiter=delimiter))
 
-                for i in range(min(len(days), len(dates))):
-                    history_headers[dates[i]] = days[i]
-                    ordered_date_labels.append(dates[i])
-                    history_map[dates[i]] = {}
+            if len(reader) > 2:
+                days = [d.strip() for d in reader[1][1:]]
+                dates = [d.strip() for d in reader[2][1:]]
 
+                for col_idx in range(min(len(days), len(dates))):
+                    day_lbl = days[col_idx]
+                    date_lbl = dates[col_idx]
+
+                    if date_lbl:
+                        history_headers[date_lbl] = day_lbl
+                        if date_lbl not in ordered_date_labels:
+                            ordered_date_labels.append(date_lbl)
+                        if date_lbl not in history_map:
+                            history_map[date_lbl] = {}
+
+                        # Read cell values for rows 3 onwards
+                        for row_idx in range(3, len(reader)):
+                            if row_idx < len(template_lines):
+                                if col_idx + 1 < len(reader[row_idx]):
+                                    history_map[date_lbl][row_idx] = reader[row_idx][col_idx + 1]
         except Exception as e:
             print("History load failed:", e)
 
@@ -205,18 +226,30 @@ def generate_dashboard():
         2: ("RECHARGE_REGIONAL.csv", "TRAFFIC", None, None),
         3: ("LOAN_REGIONAL.csv", "subs", "LOAN_DAILY.csv", "subs"),
         4: ("LOAN_REGIONAL.csv", "TRAFFIC", None, None),
-        5: ("REPAYMENT_REGIONAL.csv", "SUBS", "REPAYMENT_DAILY.csv", "SUBS"),
+        5: ("REPAYMENT_REGIONAL.csv", "SUBS", "REPAYMENT_DAILY.csv", "usb"),
         6: ("REPAYMENT_REGIONAL.csv", "TRAFFIC", None, None),
+        7: ("DIRECT_BUNDLE_PURCHASE_REGIONAL.csv", "subs", "DIRECT_BUNDLE_PURCHASE_DAILY.csv", "subs"),
+        8: ("DIRECT_BUNDLE_PURCHASE_REGIONAL.csv", "Bundle_VALUE_TRAFFIC", "DIRECT_BUNDLE_PURCHASE_DAILY.csv", "Bundle_value"),
+        9: ("GA_REGIONAL.csv", "SUBS", "GA_DAILY.csv", "GA"),
+        10: ("VOICE_REGIONAL.csv", "total_Subs", "VOICE_DAILY.csv", "total_Subs"),
+        11: ("VOICE_REGIONAL.csv", "TRAFFIC", None, None),
+        12: ("DATA_REGIONAL.csv", "total_Subs", "DATA_DAILY.csv", "total_Subs"),
+        13: ("DATA_REGIONAL.csv", "TRAFFIC", None, None),
+        14: ("SMS_REGIONAL.csv", "Subs", "SMS_DAILY.csv", "total_Subs"),
+        15: ("SMS_REGIONAL.csv", "TRAFFIC", None, None),
     }
 
     for date_int in dates:
         day, label = format_date_headers(date_int)
+        day = day.strip()
+        label = label.strip()
 
         if label not in ordered_date_labels:
             ordered_date_labels.append(label)
 
         history_headers[label] = day
-        history_map[label] = {}
+        if label not in history_map:
+            history_map[label] = {}
 
         daily = extract_metric("DAILY_ACTIVE_SUB_REGIONAL.csv", date_int, "VLR_ATTCHED")
         a30 = extract_metric("30_DAYIS_DAILY.csv", date_int, "count(DISTINCT msisdn)")
@@ -240,6 +273,17 @@ def generate_dashboard():
                 )
 
     # Build output
+    def parse_date_label(label: str) -> datetime:
+        try:
+            return datetime.strptime(label.strip(), "%d-%b")
+        except Exception:
+            try:
+                return datetime.strptime(label.strip(), "%d-%B")
+            except Exception:
+                return datetime.min
+
+    ordered_date_labels.sort(key=parse_date_label)
+
     output_cols = []
     for lbl in ordered_date_labels:
         col = [""] * len(template_lines)
@@ -253,9 +297,12 @@ def generate_dashboard():
 
     OUTPUTS_DIR.mkdir(exist_ok=True)
 
-    with open(OUTPUT_REPORT_PATH, "w", encoding="utf-8") as f:
+    import csv
+    with open(OUTPUT_REPORT_PATH, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
         for i in range(len(template_lines)):
-            f.write(row_labels[i] + "\t" + "\t".join(col[i] for col in output_cols) + "\n")
+            row = [row_labels[i]] + [col[i] for col in output_cols]
+            writer.writerow(row)
 
     print("Dashboard generated:", OUTPUT_REPORT_PATH)
 
