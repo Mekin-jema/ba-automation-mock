@@ -16,10 +16,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BASE_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = BASE_DIR / "outputs"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+OUTPUT_DIR = PROJECT_ROOT / "outputs"
 REPORT_FILE = OUTPUT_DIR / "real-sample-report-pivoted.csv"
-DASHBOARD_FILE = BASE_DIR / "DAILY_REGIONAL_REPORT.xlsx"
+DASHBOARD_FILE = OUTPUT_DIR / "DAILY_REGIONAL_REPORT.xlsx"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -28,16 +28,16 @@ logger = logging.getLogger(__name__)
 def run_command(command: List[str], timeout: int = 180) -> subprocess.CompletedProcess:
     """Run a shell command and raise clear errors if it fails."""
     logger.info("Running: %s", " ".join(command))
-    return subprocess.run(command, cwd=BASE_DIR, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(command, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=timeout)
 
 
 def run_report_pipeline() -> dict:
     """Run the report generation pipeline end to end."""
     steps = [
-        [sys.executable, "mock_warehouse.py", "build"],
-        [sys.executable, "mock_warehouse.py", "run"],
-        [sys.executable, "generate_dashboard.py"],
-        [sys.executable, "generate_report.py"],
+        [sys.executable, "src/mock_warehouse.py", "build"],
+        [sys.executable, "src/mock_warehouse.py", "run"],
+        [sys.executable, "src/generate_dashboard.py"],
+        [sys.executable, "src/generate_report.py"],
     ]
 
     results = {}

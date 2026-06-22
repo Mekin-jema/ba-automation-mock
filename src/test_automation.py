@@ -10,13 +10,16 @@ from pathlib import Path
 
 import pandas as pd
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+OUTPUTS_DIR = PROJECT_ROOT / "outputs"
+
 
 def build_mock_warehouse() -> bool:
     """Build the mock database."""
     print("🔨 Building mock warehouse...")
     try:
         result = subprocess.run(
-            ["python", "mock_warehouse.py", "build"],
+            [sys.executable, str(PROJECT_ROOT / "src" / "mock_warehouse.py"), "build"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -37,7 +40,7 @@ def run_queries() -> bool:
     print("\n🚀 Running SQL queries...")
     try:
         result = subprocess.run(
-            ["python", "mock_warehouse.py", "run"],
+            [sys.executable, str(PROJECT_ROOT / "src" / "mock_warehouse.py"), "run"],
             capture_output=True,
             text=True,
             timeout=60,
@@ -92,7 +95,7 @@ def check_specific_metrics() -> bool:
     print("\n📈 Checking business metrics...")
 
     try:
-        q01 = pd.read_csv("outputs/query_01.csv")
+        q01 = pd.read_csv(OUTPUTS_DIR / "query_01.csv")
         daily_active_subs = q01.iloc[0, 0]
         print(f"  Daily Active Subscribers: {daily_active_subs}")
 
@@ -100,11 +103,11 @@ def check_specific_metrics() -> bool:
             print("  ❌ Invalid subscriber count")
             return False
 
-        q03 = pd.read_csv("outputs/query_03.csv")
+        q03 = pd.read_csv(OUTPUTS_DIR / "query_03.csv")
         regional_breakdown = len(q03)
         print(f"  Regional breakdowns: {regional_breakdown}")
 
-        q09 = pd.read_csv("outputs/query_09.csv")
+        q09 = pd.read_csv(OUTPUTS_DIR / "query_09.csv")
         recharge_traffic = q09["TRAFFIC"].sum() if len(q09) > 0 else 0
         print(f"  Recharge traffic volume: {recharge_traffic:.2f}")
 
@@ -121,7 +124,7 @@ def generate_report() -> None:
     print("\n📋 Summary Report")
     print("=" * 50)
 
-    outputs_dir = Path("outputs")
+    outputs_dir = OUTPUTS_DIR
     csv_files = sorted(outputs_dir.glob("query_*.csv"))
 
     for idx, csv_file in enumerate(csv_files, 1):

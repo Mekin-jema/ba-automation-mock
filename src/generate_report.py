@@ -7,6 +7,10 @@ Matches the CBU Daily Stand-Up report format
 
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+OUTPUTS_DIR = PROJECT_ROOT / "outputs"
+DEFAULT_REPORT_PATH = OUTPUTS_DIR / "DAILY_REGIONAL_REPORT.xlsx"
+
 try:
     import pandas as pd
     import openpyxl
@@ -70,9 +74,15 @@ def create_regional_pivot(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
 
-def generate_regional_report(output_dir: Path = Path("outputs"), 
-                            report_path: Path = Path("DAILY_REGIONAL_REPORT.xlsx")) -> Path:
-    """Generate Excel report with regional pivots"""
+def generate_regional_report(
+    output_dir: Path | None = None,
+    report_path: Path | None = None,
+) -> Path:
+    """Generate Excel report with regional pivots."""
+    if output_dir is None:
+        output_dir = OUTPUTS_DIR
+    if report_path is None:
+        report_path = DEFAULT_REPORT_PATH
     
     if not HAS_EXCEL:
         print("[ERROR] pandas and openpyxl required. Install: pip install pandas openpyxl")
@@ -80,9 +90,12 @@ def generate_regional_report(output_dir: Path = Path("outputs"),
 
     print(f"\n[INFO] Generating Regional Pivot Report from {output_dir}...\n")
     
-    # Find all CSV files
-    csv_files = sorted(output_dir.glob("query_*.csv"))
-    
+    # Find all CSV files that represent generated query results.
+    csv_files = sorted(
+        path for path in output_dir.glob("*.csv")
+        if path.name not in {"real-sample-report-pivoted.csv"}
+    )
+
     if not csv_files:
         print("[ERROR] No query CSV files found in outputs/")
         return None
@@ -171,8 +184,8 @@ def generate_regional_report(output_dir: Path = Path("outputs"),
 if __name__ == "__main__":
     # Generate regional pivot report
     report = generate_regional_report(
-        output_dir=Path("outputs"),
-        report_path=Path("DAILY_REGIONAL_REPORT.xlsx")
+        output_dir=OUTPUTS_DIR,
+        report_path=DEFAULT_REPORT_PATH,
     )
     
     if report and report.exists():

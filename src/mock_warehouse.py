@@ -605,9 +605,21 @@ def run_sql(db_path: Path, sql_path: Path, output_dir: Path, report_date: date) 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build and run a local mock telecom warehouse.")
     parser.add_argument("command", choices=("build", "run"))
-    parser.add_argument("--db", default="mock_warehouse.duckdb", help="DuckDB database path")
-    parser.add_argument("--sql", default="test2.sql", help="SQL workbook to execute")
-    parser.add_argument("--out", default="outputs", help="Output directory for result CSV files")
+    parser.add_argument(
+        "--db",
+        default=str(Path(__file__).resolve().parents[1] / "data" / "db" / "mock_warehouse.duckdb"),
+        help="DuckDB database path",
+    )
+    parser.add_argument(
+        "--sql",
+        default=str(Path(__file__).resolve().parents[1] / "data" / "sql" / "test2.sql"),
+        help="SQL workbook to execute",
+    )
+    parser.add_argument(
+        "--out",
+        default=str(Path(__file__).resolve().parents[1] / "outputs"),
+        help="Output directory for result CSV files",
+    )
     parser.add_argument(
         "--date",
         default=None,

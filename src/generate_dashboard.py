@@ -13,9 +13,9 @@ import numpy as np
 # =========================
 # PATHS
 # =========================
-WORKSPACE_DIR = Path(__file__).parent
-OUTPUTS_DIR = WORKSPACE_DIR / "outputs"
-TEMPLATE_PATH = WORKSPACE_DIR / "real-sample-report.csv"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+OUTPUTS_DIR = PROJECT_ROOT / "outputs"
+TEMPLATE_PATH = PROJECT_ROOT / "data" / "sample" / "real-sample-report.csv"
 OUTPUT_REPORT_PATH = OUTPUTS_DIR / "real-sample-report-pivoted.csv"
 
 # =========================
