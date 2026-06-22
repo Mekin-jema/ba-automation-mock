@@ -602,6 +602,22 @@ def run_sql(db_path: Path, sql_path: Path, output_dir: Path, report_date: date) 
         print(f"Warning: Could not auto-generate dashboard report: {e}")
 
 
+def run_sql_range(
+    db_path: Path,
+    sql_path: Path,
+    output_dir: Path,
+    start_date: date,
+    end_date: date,
+) -> None:
+    """Run the SQL workbook for every day in the inclusive date range."""
+    if start_date > end_date:
+        raise SystemExit("--start-date must be on or before --end-date.")
+
+    for offset in range((end_date - start_date).days + 1):
+        current_date = start_date + timedelta(days=offset)
+        run_sql(db_path, sql_path, output_dir, current_date)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build and run a local mock telecom warehouse.")
     parser.add_argument("command", choices=("build", "run"))
@@ -624,7 +640,19 @@ def parse_args() -> argparse.Namespace:
         "--date",
         default=None,
         metavar="YYYYMMDD",
-        help="Report date (default: yesterday).  Example: --date 20260521",
+        help="Single report date. Example: --date 20260521",
+    )
+    parser.add_argument(
+        "--start-date",
+        default=None,
+        metavar="YYYYMMDD",
+        help="Start of date range for batch execution. Use with --end-date.",
+    )
+    parser.add_argument(
+        "--end-date",
+        default=None,
+        metavar="YYYYMMDD",
+        help="End of date range for batch execution. Use with --start-date.",
     )
     return parser.parse_args()
 
@@ -638,7 +666,13 @@ def main() -> None:
         print(f"built {db_path}")
         return
 
-    # Resolve the report date: explicit --date arg takes priority, otherwise yesterday.
+    # Resolve the report date(s): explicit --date takes priority, then a
+    # start/end range, otherwise yesterday.
+    if args.date and (args.start_date or args.end_date):
+        raise SystemExit(
+            "Use either --date or --start-date/--end-date, not both."
+        )
+
     if args.date:
         try:
             report_date = datetime.strptime(args.date, "%Y%m%d").date()
@@ -646,14 +680,42 @@ def main() -> None:
             raise SystemExit(
                 f"Invalid --date value '{args.date}'. Use YYYYMMDD format, e.g. 20260521."
             )
+        report_dates = [report_date]
+    elif args.start_date or args.end_date:
+        if not args.start_date or not args.end_date:
+            raise SystemExit(
+                "Both --start-date and --end-date are required for a date range."
+            )
+        try:
+            start_date = datetime.strptime(args.start_date, "%Y%m%d").date()
+            end_date = datetime.strptime(args.end_date, "%Y%m%d").date()
+        except ValueError:
+            raise SystemExit(
+                "Dates must be in YYYYMMDD format. Example: --start-date 20260519 --end-date 20260521."
+            )
+        report_dates = [start_date, end_date]
     else:
         report_date = date.today() - timedelta(days=1)
-
-    print(f"Report date: {report_date.strftime('%Y-%m-%d')} ({day_key(report_date)})")
+        report_dates = [report_date]
 
     if not db_path.exists():
         build_database(db_path)
-    run_sql(db_path, Path(args.sql), Path(args.out), report_date)
+
+    if args.start_date and args.end_date:
+        run_sql_range(
+            db_path,
+            Path(args.sql),
+            Path(args.out),
+            start_date,
+            end_date,
+        )
+    else:
+        run_sql(
+            db_path,
+            Path(args.sql),
+            Path(args.out),
+            report_date if args.date else report_dates[0],
+        )
 
 
 if __name__ == "__main__":

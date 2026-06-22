@@ -33,6 +33,8 @@ Results: outputs/query_01.csv … query_19.csv
 ## How to Run (Common Options)
 - Build (one-time): `python mock_warehouse.py build`
 - Run queries: `python mock_warehouse.py run`
+- Run for one date: `python mock_warehouse.py run --date 20260521`
+- Run for a range of dates: `python mock_warehouse.py run --start-date 20260519 --end-date 20260521`
 - Run with custom output: `python mock_warehouse.py run --out my_outputs`
 - Rebuild DB: `python mock_warehouse.py build --db my.db`
 - Test automation: `python test_automation.py`
