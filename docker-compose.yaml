@@ -1,0 +1,20 @@
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mekin2024/jenkins-devops-tools:local
+    container_name: jenkins_sandbox
+    privileged: true
+    user: root
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    environment:
+      - TZ=UTC
+    volumes:
+      - ${JENKINS_HOME_PATH:-./jenkins_home}:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/workspace
+        

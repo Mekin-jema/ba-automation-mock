@@ -75,16 +75,16 @@ def generate_regional_report(output_dir: Path = Path("outputs"),
     """Generate Excel report with regional pivots"""
     
     if not HAS_EXCEL:
-        print("❌ pandas and openpyxl required. Install: pip install pandas openpyxl")
+        print("[ERROR] pandas and openpyxl required. Install: pip install pandas openpyxl")
         return None
-    
-    print(f"\n📊 Generating Regional Pivot Report from {output_dir}...\n")
+
+    print(f"\n[INFO] Generating Regional Pivot Report from {output_dir}...\n")
     
     # Find all CSV files
     csv_files = sorted(output_dir.glob("query_*.csv"))
     
     if not csv_files:
-        print("❌ No query CSV files found in outputs/")
+        print("[ERROR] No query CSV files found in outputs/")
         return None
     
     # Create Excel writer
@@ -99,7 +99,7 @@ def generate_regional_report(output_dir: Path = Path("outputs"),
                 
                 # Check if it has regional data
                 if is_regional_query(df):
-                    print(f"✓ Query {query_num}: Pivoting regional data...")
+                    print(f"[INFO] Query {query_num}: Pivoting regional data...")
                     
                     # Create pivot
                     pivoted = create_regional_pivot(df)
@@ -108,18 +108,18 @@ def generate_regional_report(output_dir: Path = Path("outputs"),
                     sheet_name = f"Q{query_num}_Regional"
                     pivoted.to_excel(writer, sheet_name=sheet_name)
                     
-                    print(f"  → Sheet: {sheet_name} ({len(pivoted)} regions)")
+                    print(f"[INFO] Sheet: {sheet_name} ({len(pivoted)} regions)")
                     regional_count += 1
                 else:
                     # Non-regional query - write as-is
                     sheet_name = f"Q{query_num}"
                     df.to_excel(writer, sheet_name=sheet_name, index=False)
-                    print(f"✓ Query {query_num}: {sheet_name}")
-                    
+                    print(f"[INFO] Query {query_num}: {sheet_name}")
+
             except Exception as e:
-                print(f"✗ Query {csv_file.stem}: {e}")
+                print(f"[ERROR] Query {csv_file.stem}: {e}")
         
-        print(f"\n✅ Created {regional_count} regional pivot sheets")
+        print(f"\n[INFO] Created {regional_count} regional pivot sheets")
     
     # Format Excel
     try:
@@ -161,9 +161,9 @@ def generate_regional_report(output_dir: Path = Path("outputs"),
                 ws.column_dimensions[column_letter].width = min(max_length + 2, 50)
         
         wb.save(report_path)
-        print(f"✓ Formatted and saved: {report_path}\n")
+        print(f"[INFO] Formatted and saved: {report_path}\n")
     except Exception as e:
-        print(f"⚠️  Format warning: {e}\n")
+        print(f"[WARNING] Format warning: {e}\n")
     
     return report_path
 
@@ -176,5 +176,5 @@ if __name__ == "__main__":
     )
     
     if report and report.exists():
-        print(f"📂 Report ready: {report}")
+        print(f"[INFO] Report ready: {report}")
         print("   Open in Excel to view regional pivots!")

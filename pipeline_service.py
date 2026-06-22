@@ -96,10 +96,18 @@ def send_email(
             filename=attachment.name,
         )
 
-    with smtplib.SMTP(smtp_host, smtp_port) as smtp:
-        smtp.starttls()
-        smtp.login(smtp_user, smtp_password)
-        smtp.send_message(message)
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as smtp:
+            smtp.starttls()
+            smtp.login(smtp_user, smtp_password)
+            smtp.send_message(message)
+    except smtplib.SMTPAuthenticationError as exc:
+        raise RuntimeError(
+            f"SMTP authentication failed for {smtp_user}. "
+            "For Gmail, use an App Password and confirm the username/password are correct."
+        ) from exc
+    except smtplib.SMTPException as exc:
+        raise RuntimeError(f"SMTP error while sending email: {exc}") from exc
 
     logger.info("Email sent successfully to %s", ", ".join(recipients))
 
